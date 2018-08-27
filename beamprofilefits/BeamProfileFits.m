@@ -1,4 +1,4 @@
-function BeamProfileFits_v4_Weighted
+function BeamProfileFits
 % Beam Profile Fitting routine
 %
 % INPUTS: 

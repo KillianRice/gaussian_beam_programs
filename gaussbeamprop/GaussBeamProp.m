@@ -1,4 +1,4 @@
-function sysStruct = GaussBeamPropV6(sysStruct)
+function sysStruct = GaussBeamProp(sysStruct)
 %GaussBeamProp propagates Gaussian beam through optical system of lenses.
 %All the equations used can be found in Kogelnik and Li (1968)
 %Remember to use the expected units when inputing data. All units expected

@@ -1,4 +1,4 @@
-function sysStruct = GaussBeamProp(sysStruct)
+function sysStruct = GaussBeamPropV4(sysStruct)
 %GaussBeamProp propagates Gaussian beam through optical system of lenses.
 %All the equations used can be found in Kogelnik and Li (1968)
 %Remember to use the expected units when inputing data. All units expected
@@ -21,6 +21,7 @@ function sysStruct = GaussBeamProp(sysStruct)
 %                              the z_range as max
 %                    Wst_H_Size   - radius of horizontsl input waist [um]
 %                    Wst_H_Pos    - position of horizontal input waist [cm]
+%                    M2_H         - M2 (M squared) value of the axis
 %                    h_comp       - cell containing 2 element vectors describing
 %                                   each horizontal component as
 %                                   [comp specific  , comp_position(cm)]
@@ -29,9 +30,9 @@ function sysStruct = GaussBeamProp(sysStruct)
 %                    h_comp_type  - 1D vector of integers specifying the particular
 %                                   components of the system
 %                                       1 - lens
-%                                       2 - afocal magnification (prism pair)
 %                    Wst_V_Size   - (optional) same as Wst_H_Size
 %                    Wst_V_Pos    - (optional) same as Wst_H_Pos
+%                    M2_V         - M2 (M squared) value of the axis
 %                    v_comp       - (optional) same as horz_comp
 %                    v_comp_type  - (optional) same as h_comp_type
 %                    full_curves  - (optional) Boolean to plot propagation of each
@@ -57,10 +58,11 @@ function sysStruct = GaussBeamProp(sysStruct)
 %   10.9.13 - Added ability to specify transfer matricies other than lenses
 %             Built-in options are for lenses or afocal magnification (prism pairs)
 %   8.15.15 - Added ability to plot on specified axes_handle
+%   9.1.15  - Added ability to propagate with non-unity M^2 value (see notes in folder).
+%             Also removed the prism pair functionality since it was not reliable.
 
 % Future Work
 % - check that waist are included for both beam types
-% - Figure out how to propagate with a non-unity M^2 value
 
 %% Check input arguments
 % if no input arguments create system structure
@@ -74,7 +76,7 @@ options.lineColor   = {'b','r'}; % used to identify horizontal and vertical beam
 options.lineWidth   = 2.5;       % Thicker lines
 options.full_curves = 1;         % full_curve default
 options.show_comps  = 1;         % show_comps default
-options.precision   = 1e-2;      % centimeters, precision of grid (space between pts)
+options.precision   = 1e-3;      % centimeters, precision of grid (space between pts)
 options.compPow     = 1e1;       % power to convert to integer for vector comparison (compPow*1/precision)
 options.compHeight  = 50;        % size of components to show on plot (um)
 options.FontSize    = 16;        % Fontsize for axes
@@ -150,9 +152,10 @@ hold on; grid on
         comp_type = sysStruct.h_comp_type;
         Wst_Size  = sysStruct.Wst_H_Size*1e-6;
         Wst_Pos   = sysStruct.Wst_H_Pos*1e-2;
+        M         = sqrt(sysStruct.M2_H);
         options.beam_type = 'Horizontal';
         
-        beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,options);
+        beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,M,options);
     end
     
     if v_opt
@@ -165,19 +168,21 @@ hold on; grid on
         comp_type = sysStruct.v_comp_type;
         Wst_Size  = sysStruct.Wst_V_Size*1e-6;
         Wst_Pos   = sysStruct.Wst_V_Pos*1e-2;
+        M         = sqrt(sysStruct.M2_V);
         options.beam_type = 'Vertical';
         
-        beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,options);
+        beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,M,options);
     end
     
     %% Set Figure Properties
     xlim(z_lim*1e2)
     xlabel('[cm]','FontSize',options.FontSize);
     ylabel('Beam Radius [\mum]','FontSize',options.FontSize)
+    set(gca,'FontSize',options.FontSize)
     legend('show','Location','Best')
 end
 
-function beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,options)
+function beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,M,options)
 %beamTransform calculates the beam transformation through the system of
 %componenets with given focal length and position
 
@@ -189,7 +194,7 @@ z = zeros(1,length(comp) + 2);
 if ~isempty(comp) % only sort components if there are components
     comp_tmp   = [comp{:}];               % convert cell to matrix
     comp_mat(:,1) = comp_tmp(1:2:end)*1e-3; comp_mat(:,2) = comp_tmp(2:2:end)*1e-2;
-    [tmp,IX] = sort(comp_mat(:,2)); comp_mat = comp_mat(IX,:); % sort comp in ascending order
+    [~,IX] = sort(comp_mat(:,2)); comp_mat = comp_mat(IX,:); % sort comp in ascending order
     z(2:end-1) = comp_mat(:,2);           % pick out comp positions (convert to meter)
 end
 z(1:length(z)-1:end) = z_lim;         % assign start and stop position 
@@ -249,10 +254,10 @@ for i = 1:length(q)
     
 %% Calculate the beam parameter, spotSize, waist size, and position
     q_freespace  = (z_range_calc - z(i)) + q(i);     % calc q 
-    spotSize     = sqrt(-lambda./(pi.*imag(1./q_freespace)));
+    spotSize     = M*sqrt(-lambda./(pi.*imag(1./q_freespace))); % rearrange eq. 17 from K&L and multiply by M for real spotsize
     R            = 1/real(1/q_freespace(end));       % Radius of curvature is real part of 1/q
-    Wst_Out_Size = sqrt(spotSize(end)^2/(1 + (pi*spotSize(end)^2/(lambda*R))^2)); % K&L eq. 24
-    Wst_Out_Pos  = z_range_plot(end) - R/(1 + (lambda*R/(pi*spotSize(end)^2))^2); % K&L eq. 25
+    Wst_Out_Size = sqrt((spotSize(end)/M)^2/(1 + (pi*(spotSize(end)/M)^2/(lambda*R))^2)); % K&L eq. 24
+    Wst_Out_Pos  = z_range_plot(end) - R/(1 + (lambda*R/(pi*(spotSize(end)/M)^2))^2); % K&L eq. 25
         % Eq. 25 gives distance from waist to current point, then reference
         % your known position to get position of waist for current axes.
 
@@ -265,8 +270,8 @@ for i = 1:length(q)
         spotSize(ismember(Z_Range_Plot,ZSep))*1e6,...
         char(plot_color),'LineWidth',options.lineWidth);
     if i == 1
-        set(h1,'DisplayName',['Input     - Radius: ',num2str(round(Wst_Out_Size*1e6)),'\mum',...
-            ', Z_0: ',num2str(round(Wst_Out_Pos*1e3)*1e-1),'cm'])
+        set(h1,'DisplayName',['Input - Radius: ',num2str(round(Wst_Out_Size*1e6)),'\mum',...
+            ', Z_0: ',num2str(round(Wst_Out_Pos*1e3)*1e-1),'cm, M^2: ',num2str(M^2)])
     elseif i > 1
         set(h1,'DisplayName',['Comp ',num2str(i-1),' - ',options.compSpecs{comp_type(i-1),1},...
             ': ',num2str(comp_mat(i-1,1)*1e3),options.compSpecs{comp_type(i-1),2},', Z: ',...
@@ -301,15 +306,11 @@ function transformMat = transformMatSelect(comp,comp_type)
 %
 % Componenet selction guide (comp_type)
 %   1 = lens:                 comp = [focal length(mm), position(cm)]
-%   2 = afocal magnification: comp = [magnification, position(cm)]
 
 switch comp_type
     case 1 %(Kogelnik and Li)
         transformMat = [    1          0
                         -1e3/comp(1)   1];
-    case 2 %(Introduction to Matrix Methods in Optics pg. 78 )
-        transformMat = [comp(1)    0
-                        0       1/comp(1)];
     otherwise
         error(['Invalid selection of component type. Check the help for ',...
             'supported transfer matricies and try again.'])
@@ -331,24 +332,28 @@ while 1
         case 1
             sysStruct.Wst_H_Size = input('Horizontal waist size (um): ');
             sysStruct.Wst_H_Pos  = input('Horizontal waist position (cm): ');
+            sysStruct.M2_H       = input('Horizontal M2 value: ');
             break
         case 2
             sysStruct.Wst_V_Size = input('Vertical waist size (um): ');
-            sysStruct.Wst_V_Pos  = input('Vertical waist position (cm): ');            
+            sysStruct.Wst_V_Pos  = input('Vertical waist position (cm): ');
+            sysStruct.M2_V       = input('Vertical M2 value: ');
             break
         case 3
             sysStruct.Wst_H_Size = input('Horizontal waist size (um): ');
             sysStruct.Wst_H_Pos  = input('Horizontal waist position (cm): ');
+            sysStruct.M2_H       = input('Horizontal M2 value: ');
             sysStruct.Wst_V_Size = input('Vertical waist size (um): ');
             sysStruct.Wst_V_Pos  = input('Vertical waist position (cm): ');
+            sysStruct.M2_V       = input('Vertical M2 value: ');
             break
         otherwise
             disp('Incorrect option chosen. Please try again'); drawnow
     end
 end
 
-comp_types = input('What types of components are you dealing with? Lenses (1), Prism pairs (2), Both (3): ');
-if comp_types == 1 || comp_types == 3
+comp_types = input('Are you considering lenses in your path? Yes (1), No (0): ');
+if comp_types == 1
     switch waist_types
         case 1
             num_h_lens = input('How many horizontal lenses?: ');
@@ -410,75 +415,6 @@ if comp_types == 1 || comp_types == 3
                 else
                     disp('Incorrect option chosen. Please try again'); drawnow
                 end
-            end
-    end
-end
-if comp_types == 2 || comp_types == 3
-    switch waist_types
-        case 1
-            num_h_comp = input('How many horizontal prism pairs?: ');
-            tmp_cell   = cell(1,num_h_comp);
-            for i = 1:num_h_comp
-                magnification = input(sprintf('Magnification of prism pair %g: ',i));
-                pair_position = input(sprintf('Position of prism pair %g (cm): ',i));
-                tmp_cell{i}   = [magnification pair_position];
-            end
-            if isfield(sysStruct,'h_comp')
-                sysStruct.h_comp = [sysStruct.h_comp tmp_cell];
-                lengthTmp        = length(sysStruct.h_comp_type) + 1;
-                sysStruct.h_comp_type(lengthTmp:lengthTmp + num_h_comp - 1) = 2;
-            else
-                sysStruct.h_comp = tmp_cell;
-                sysStruct.h_comp_type(1:num_h_comp) = 2;
-            end
-        case 2
-            num_v_comp = input('How many vertical prism pairs?: ');
-            tmp_cell   = cell(1,num_v_comp);
-            for i = 1:num_v_comp
-                magnification = input(sprintf('Magnification of prism pair %g: ',i));
-                pair_position = input(sprintf('Position of prism pair %g (cm): ',i));
-                tmp_cell{i}   = [magnification pair_position];
-            end
-            if isfield(sysStruct,'v_comp')
-                sysStruct.v_comp = [sysStruct.v_comp tmp_cell];
-                lengthTmp        = length(sysStruct.v_comp_type) + 1;
-                sysStruct.v_comp_type(lengthTmp:lengthTmp + num_v_comp - 1) = 2;
-            else
-                sysStruct.v_comp = tmp_cell;
-                sysStruct.v_comp_type(1:num_v_comp) = 2;
-            end
-
-        case 3
-            num_h_comp = input('How many horizontal prism pairs?: ');
-            tmp_cell   = cell(1,num_h_comp);
-            for i = 1:num_h_comp
-                magnification = input(sprintf('Magnification of prism pair %g: ',i));
-                pair_position = input(sprintf('Position of prism pair %g (cm): ',i));
-                tmp_cell{i}   = [magnification pair_position];
-            end
-            if isfield(sysStruct,'h_comp')
-                sysStruct.h_comp = [sysStruct.h_comp tmp_cell];
-                lengthTmp        = length(sysStruct.h_comp_type) + 1;
-                sysStruct.h_comp_type(lengthTmp:lengthTmp + num_h_comp - 1) = 2;
-            else
-                sysStruct.h_comp = tmp_cell;
-                sysStruct.h_comp_type(1:num_h_comp) = 2;
-            end
-            
-            num_v_comp = input('How many vertical prism pairs?: ');
-            tmp_cell   = cell(1,num_v_comp);
-            for i = 1:num_v_comp
-                magnification = input(sprintf('Magnification of prism pair %g: ',i));
-                pair_position = input(sprintf('Position of prism pair %g (cm): ',i));
-                tmp_cell{i}   = [magnification pair_position];
-            end
-            if isfield(sysStruct,'v_comp')
-                sysStruct.v_comp = [sysStruct.v_comp tmp_cell];
-                lengthTmp        = length(sysStruct.v_comp_type) + 1;
-                sysStruct.v_comp_type(lengthTmp:lengthTmp + num_v_comp - 1) = 2;
-            else
-                sysStruct.v_comp = tmp_cell;
-                sysStruct.v_comp_type(1:num_v_comp) = 2;
             end
     end
 end

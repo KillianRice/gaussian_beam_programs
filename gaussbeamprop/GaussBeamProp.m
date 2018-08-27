@@ -1,4 +1,4 @@
-function sysStruct = GaussBeamPropV4(sysStruct)
+function sysStruct = GaussBeamPropV5(sysStruct)
 %GaussBeamProp propagates Gaussian beam through optical system of lenses.
 %All the equations used can be found in Kogelnik and Li (1968)
 %Remember to use the expected units when inputing data. All units expected
@@ -15,12 +15,12 @@ function sysStruct = GaussBeamPropV4(sysStruct)
 %   sysStruct - structure containing the setup information of the optical
 %               system.
 %               Structure must contain the following fieldnames
-%                    lambda  - wavelength of light [nm]
-%                    z_range - [min max] range to be plotted, if one number then the
-%                              farthest waist position is taken as min and
-%                              the z_range as max
-%                    Wst_H_Size   - radius of horizontsl input waist [um]
-%                    Wst_H_Pos    - position of horizontal input waist [cm]
+%                    lambda       - wavelength of light [nm]
+%                    z_range      - [min max] range to be plotted, if one number then the
+%                                   farthest waist position is taken as min and
+%                                   the z_range as max
+%                    wst_h_size   - radius of horizontsl input waist [um]
+%                    wst_h_pos    - position of horizontal input waist [cm]
 %                    M2_H         - M2 (M squared) value of the axis
 %                    h_comp       - cell containing 2 element vectors describing
 %                                   each horizontal component as
@@ -30,8 +30,8 @@ function sysStruct = GaussBeamPropV4(sysStruct)
 %                    h_comp_type  - 1D vector of integers specifying the particular
 %                                   components of the system
 %                                       1 - lens
-%                    Wst_V_Size   - (optional) same as Wst_H_Size
-%                    Wst_V_Pos    - (optional) same as Wst_H_Pos
+%                    wst_v_size   - (optional) same as wst_h_size
+%                    wst_v_pos    - (optional) same as wst_h_pos
 %                    M2_V         - M2 (M squared) value of the axis
 %                    v_comp       - (optional) same as horz_comp
 %                    v_comp_type  - (optional) same as h_comp_type
@@ -60,6 +60,9 @@ function sysStruct = GaussBeamPropV4(sysStruct)
 %   8.15.15 - Added ability to plot on specified axes_handle
 %   9.1.15  - Added ability to propagate with non-unity M^2 value (see notes in folder).
 %             Also removed the prism pair functionality since it was not reliable.
+%   3.21.16 - Tweaked so that you can propagate in free space without a
+%             lens if required. Warnings will pop up but they can be
+%             ignored.
 
 % Future Work
 % - check that waist are included for both beam types
@@ -103,19 +106,19 @@ end
 
 % check at least one of h_comp or v_comp is present
 if ~(h_opt || v_opt)
-    error(['Neither h_comp or v_comp was found in the structure provided. Please ',...
-        'check the input structure and try again.'])
+    warning(['Neither h_comp or v_comp was found in the structure provided. ',...
+        'This may result in unexpected behavior of the plotting routine.'])
 end
 
 %% z Limit assignment
 if numel(sysStruct.z_range) == 2
     z_lim = sysStruct.z_range*1e-2;
 elseif h_opt && v_opt
-    z_lim = [min(sysStruct.Wst_H_Pos,sysStruct.Wst_V_Pos) sysStruct.z_range]*1e-2;
+    z_lim = [min(sysStruct.wst_h_pos,sysStruct.wst_v_pos) sysStruct.z_range]*1e-2;
 elseif h_opt
-    z_lim = [sysStruct.Wst_H_Pos sysStruct.z_range]*1e-2;
+    z_lim = [sysStruct.wst_h_pos sysStruct.z_range]*1e-2;
 elseif v_opt
-    z_lim = [sysStruct.Wst_V_Pos sysStruct.z_range]*1e-2;
+    z_lim = [sysStruct.wst_v_pos sysStruct.z_range]*1e-2;
 else
     error('An unexpected event occured in the assignment of z_lim')
 end
@@ -134,10 +137,10 @@ end
 if isfield(sysStruct,'axes_handle')
     if sysStruct.axes_handle
         axes(sysStruct.axes_handle); 
-        set(sysStruct.axes_handle,'Box','on','Linewidth',2);
+        set(sysStruct.axes_handle,'Box','on','Linewidth',1.5);
     end
 else
-    set(gca,'Box','on','Linewidth',2);
+    set(gca,'Box','on','Linewidth',1.5);
 end
 hold on; grid on
     
@@ -150,8 +153,8 @@ hold on; grid on
         
         comp      = sysStruct.h_comp;
         comp_type = sysStruct.h_comp_type;
-        Wst_Size  = sysStruct.Wst_H_Size*1e-6;
-        Wst_Pos   = sysStruct.Wst_H_Pos*1e-2;
+        Wst_Size  = sysStruct.wst_h_size*1e-6;
+        Wst_Pos   = sysStruct.wst_h_pos*1e-2;
         M         = sqrt(sysStruct.M2_H);
         options.beam_type = 'Horizontal';
         
@@ -166,12 +169,37 @@ hold on; grid on
         
         comp      = sysStruct.v_comp;
         comp_type = sysStruct.v_comp_type;
-        Wst_Size  = sysStruct.Wst_V_Size*1e-6;
-        Wst_Pos   = sysStruct.Wst_V_Pos*1e-2;
+        Wst_Size  = sysStruct.wst_v_size*1e-6;
+        Wst_Pos   = sysStruct.wst_v_pos*1e-2;
         M         = sqrt(sysStruct.M2_V);
         options.beam_type = 'Vertical';
         
         beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,M,options);
+    end
+    
+    % case for if you just want free space propagation
+    if ~(h_opt || v_opt) 
+        
+        comp      = [];
+        comp_type = [];
+        
+        if isfield(sysStruct,'wst_v_size')
+            Wst_Size  = sysStruct.wst_v_size*1e-6;
+            Wst_Pos   = sysStruct.wst_v_pos*1e-2;
+            M         = sqrt(sysStruct.M2_V);
+            options.beam_type = 'Vertical';
+        
+            beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,M,options);
+        end
+        
+        if isfield(sysStruct,'wst_h_size')
+            Wst_Size  = sysStruct.wst_h_size*1e-6;
+            Wst_Pos   = sysStruct.wst_h_pos*1e-2;
+            M         = sqrt(sysStruct.M2_H);
+            options.beam_type = 'Horizontal';
+        
+            beamTransform(lambda,comp,comp_type,z_lim,Wst_Size,Wst_Pos,M,options);
+        end
     end
     
     %% Set Figure Properties
@@ -312,8 +340,10 @@ switch comp_type
         transformMat = [    1          0
                         -1e3/comp(1)   1];
     otherwise
-        error(['Invalid selection of component type. Check the help for ',...
-            'supported transfer matricies and try again.'])
+        transformMat = [    1          0
+                            0          1];
+        warning(['Invalid selection of component type. Check the help for ',...
+            'supported transfer matricies. Propagating without transforming.1'])
 end
 end
 
@@ -330,21 +360,21 @@ while 1
     waist_types = input('What types of waists are you dealing with? Horz (1), Vert (2), Both (3): ');
     switch waist_types
         case 1
-            sysStruct.Wst_H_Size = input('Horizontal waist size (um): ');
-            sysStruct.Wst_H_Pos  = input('Horizontal waist position (cm): ');
+            sysStruct.wst_h_size = input('Horizontal waist size (um): ');
+            sysStruct.wst_h_pos  = input('Horizontal waist position (cm): ');
             sysStruct.M2_H       = input('Horizontal M2 value: ');
             break
         case 2
-            sysStruct.Wst_V_Size = input('Vertical waist size (um): ');
-            sysStruct.Wst_V_Pos  = input('Vertical waist position (cm): ');
+            sysStruct.wst_v_size = input('Vertical waist size (um): ');
+            sysStruct.wst_v_pos  = input('Vertical waist position (cm): ');
             sysStruct.M2_V       = input('Vertical M2 value: ');
             break
         case 3
-            sysStruct.Wst_H_Size = input('Horizontal waist size (um): ');
-            sysStruct.Wst_H_Pos  = input('Horizontal waist position (cm): ');
+            sysStruct.wst_h_size = input('Horizontal waist size (um): ');
+            sysStruct.wst_h_pos  = input('Horizontal waist position (cm): ');
             sysStruct.M2_H       = input('Horizontal M2 value: ');
-            sysStruct.Wst_V_Size = input('Vertical waist size (um): ');
-            sysStruct.Wst_V_Pos  = input('Vertical waist position (cm): ');
+            sysStruct.wst_v_size = input('Vertical waist size (um): ');
+            sysStruct.wst_v_pos  = input('Vertical waist position (cm): ');
             sysStruct.M2_V       = input('Vertical M2 value: ');
             break
         otherwise

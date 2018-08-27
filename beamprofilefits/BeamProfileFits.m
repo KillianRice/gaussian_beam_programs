@@ -1,4 +1,4 @@
-function BeamProfileFits_v2
+function BeamProfileFits_v2_Weighted
 % Beam Profile Fitting routine
 %
 % INPUTS: 
@@ -12,8 +12,8 @@ function BeamProfileFits_v2
 %   - Distances are expected in centimeters 
 %   - Beam diameter is expected in microns
 %   - Data format should order columns as 
-%       Col. 1        | Col. 2         | Col. 3         |
-%       Distance (cm) | Vert spot (um) | Horz spot (um) |
+%       Col. 1        | Col. 2         | Col. 3         | Col. 4         | Col. 5         |
+%       Distance (cm) | Vert spot (um) | Vert Unc. (um) | Horz spot (um) | Horz Unc. (um) |
 %
 % Fitting Model
 %   fittype('sqrt(a^2+((lambda/pi)^2/a^2)*(x-c)^2)' from Kogelnik and Li
@@ -22,7 +22,7 @@ function BeamProfileFits_v2
 %% Initialize variables
 % For saving you can enter the direct path to your dataset here. If a path
 % is not present then one will be asked for.
-lambda  = 532*1e-7;
+lambda  = '';
 dir     = ''; % Full path to folder containing fitfile
 fitfile = ''; % Name of fitfile containing data
 
@@ -59,7 +59,9 @@ rawData    = textscan(dataFileID,'%f%f%f%f%f','commentstyle','%'); fclose(dataFi
 % Convert to Units for fitting
 D     = rawData{1};     % Expect distance in centimeters
 Vspot = rawData{2}./2;  % divide by 2 for diameter to radius (gaussian fit)
-Wspot = rawData{3}./2;
+Vstd  = rawData{3}./2;
+Wspot = rawData{4}./2;
+Wstd  = rawData{5}./2;
 
 %% Initial guesses for fitting
 [minVal,minPos]  = min(Vspot);
@@ -80,7 +82,7 @@ s = fitoptions('Method'     ,   'NonlinearLeastSquares' ,...
                'StartPoint' ,   beta                    );
 funcFittype = fittype(waistFunc,'options',s);
 % Fit horizontal model using new data
-[cfun_Vert,gof_Vert,output_Vert] = fit(D,Vspot*1e-4,funcFittype);
+[cfun_Vert,gof_Vert,output_Vert] = fit(D,Vspot*1e-4,funcFittype,'Weights',1./Vstd.^2);
 cf_Vert                          = coeffvalues(cfun_Vert);
 
 
@@ -93,7 +95,7 @@ s = fitoptions('Method'     ,   'NonlinearLeastSquares' ,...
 funcFittype = fittype(waistFunc,'options',s);
 
 % Fit horizontal model using new data
-[cfun_Horz,gof_Horz,output_Horz] =  fit(D,Wspot*1e-4,funcFittype);
+[cfun_Horz,gof_Horz,output_Horz] =  fit(D,Wspot*1e-4,funcFittype,'Weights',1./Wstd.^2);
 cf_Horz                          = coeffvalues(cfun_Horz);
 
 %% Calculate uncertainties
@@ -126,7 +128,7 @@ figure(figFit);
 ax_ = subaxis(2,2,1,1,'SH',0.01,'ML',0.05,'MT',0.05); 
 set(ax_,'Box','on','Linewidth',2,'FontSize',15);
 axes(ax_); hold on; grid on;
-h_ = plot(D,Vspot);
+h_ = errorbar(D,Vspot,Vstd);
 set(h_,'Parent',ax_,'Color','k',...
      'LineStyle','none', 'LineWidth',1,...
      'Marker','o', 'MarkerSize',12,...
@@ -155,7 +157,7 @@ end
 ax_ = subaxis(2,2,1,2,'SH',0.01,'ML',0.05,'MT',0.05); 
 set(ax_,'Box','on','Linewidth',2,'FontSize',15);
 axes(ax_); hold on; grid on
-h_  = plot(D,Wspot);
+h_  = errorbar(D,Wspot,Wstd);
 set(h_,'Parent',ax_,'Color','k',...
      'LineStyle','none', 'LineWidth',1,...
      'Marker','o', 'MarkerSize',12,...
@@ -205,8 +207,8 @@ figure(figFit)
 ax_ = subaxis(2,2,2,1,1,2,'MR',0.01,'MT',0.05); 
 set(ax_,'Box','on','Linewidth',2,'FontSize',15);
 hold on;
-plot(D,Wspot,'b*'); hold on
-plot(D,Vspot,'r+');
+errorbar(D,Wspot,Wstd,'b*'); hold on
+errorbar(D,Vspot,Vstd,'r+');
 
 % Extend plot beyond set propagation bounds
 xPredPnt = propXBounds + [-1 1] * 0.5 * diff(propXBounds);

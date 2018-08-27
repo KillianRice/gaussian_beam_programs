@@ -1,2 +1,2 @@
 # gaussian_beam_programs
-Programs for Gaussian beam fitting and propagation simulation
+Jim Aman's programs for Gaussian beam fitting and propagation simulation.

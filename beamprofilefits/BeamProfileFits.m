@@ -1,4 +1,4 @@
-function BeamProfileFits_v2_Weighted
+function BeamProfileFits_v4_Weighted
 % Beam Profile Fitting routine
 %
 % INPUTS: 
@@ -9,6 +9,7 @@ function BeamProfileFits_v2_Weighted
 %   vertical and horizontal fits.
 %
 % NOTE:
+%   - Be careful fitting M^2 if you have not profiled the waist. If unsure default to fit_M2 = 0;
 %   - Distances are expected in centimeters 
 %   - Beam diameter is expected in microns
 %   - Data format should order columns as 
@@ -17,26 +18,28 @@ function BeamProfileFits_v2_Weighted
 %
 % Fitting Model
 %   fittype('sqrt(a^2+((lambda/pi)^2/a^2)*(x-c)^2)' from Kogelnik and Li
-
+% Flags below suppress certain warnings that Matlab was complainging about
+%#ok<*UNRCH>
+%#ok<*NASGU>
+%#ok<*ASGLU>
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Initialize variables
 % For saving you can enter the direct path to your dataset here. If a path
 % is not present then one will be asked for.
 lambda  = '';
-dir     = ''; % Full path to folder containing fitfile
+dir     = './'; % Full path to folder containing fitfile
 fitfile = ''; % Name of fitfile containing data
 
+% Decide whether to fix M2 value or allow to vary
+fitM2 = 0; %1 for true, 0 for false
+
+% Decide whether to use weights or not
+weightFit = 0; %1 for true, 0 for false
+
 % Figure properties
-propXBounds = [-10 100]; %X limits for the propagation figure (zoomed out version)
+factorXBounds = 3; %Factor to zoom out X limits for the propagation figure
 
-% Reserve figures
-figFit  = figure;
-
-%% Define fit function
-rayLength = @(w0) pi*w0^2/lambda;
-waistFunc = @(w0,M,x0,x) w0*1e-4*M.*sqrt(1 + ((x - x0)./rayLength(w0*1e-4)).^2);
-
-%% Load and process raw data
+%% Get variable input from user
 while isempty(lambda)
     % Ask for raw data
     lambda = input('Enter wavelength (nm): ')*10^-7; %wavelength in cm
@@ -52,14 +55,48 @@ if isempty(fitfile) || isempty(dir)
     [fitfile,dir] = uigetfile('*.txt','Choose the fit file');
 end
 
+%% Define function handles
+% Fitting function (gaussian beam propagation)
+rayLength = @(w0) pi*w0^2/lambda;
+if fitM2;
+    waistFunc = @(w0,x0,M,x) w0*1e-4*M.*sqrt(1 + ((x - x0)./rayLength(w0*1e-4)).^2); 
+else
+    waistFunc = @(w0,x0,x)   w0*1e-4.*sqrt(1 + ((x - x0)./rayLength(w0*1e-4)).^2);
+end
+
+% Normalize and scale weights
+wghtScaleFunc = @(wght) 1/max(wght).*wght;
+
+
+%% Load and process raw data
+% Reserve figures
+figFit  = figure;
+
 % Get raw data in matlab
 dataFileID = fopen([dir fitfile]);
 rawData    = textscan(dataFileID,'%f%f%f%f%f','commentstyle','%'); fclose(dataFileID);
 
+% Define Limits used for fitting and create function handle for convenience
+if fitM2
+    lowBnd = [0,-Inf,1];
+    uppBnd = [Inf,Inf,Inf];
+else
+    lowBnd = [0,-Inf];
+    uppBnd = [Inf,Inf];
+end
+fitFuncOpt = @(beta,wghtVec) ...
+    fitoptions('Method'     ,   'NonlinearLeastSquares' ,...
+               'TolFun'     ,   1e-10                   ,...
+               'TolX'       ,   1e-10                   ,...
+               'Weights'    ,   wghtVec                 ,...
+               'Lower'      ,   lowBnd                  ,...
+               'Upper'      ,   uppBnd                  ,...
+               'StartPoint' ,   beta                    );
+
 % Convert to Units for fitting
 D     = rawData{1};     % Expect distance in centimeters
 Vspot = rawData{2}./2;  % divide by 2 for diameter to radius (gaussian fit)
-Vstd  = rawData{3}./2;
+Vstd  = rawData{3}./2; 
 Wspot = rawData{4}./2;
 Wstd  = rawData{5}./2;
 
@@ -67,52 +104,51 @@ Wstd  = rawData{5}./2;
 [minVal,minPos]  = min(Vspot);
 guessPosVert     = D(minPos); %vertical waist position best guess for fit (cm)
 guessWaistVert   = minVal;    %vertical waist size best guess for fit (um)
-guessM2Vert      = 1.1;
+guessM2Vert      = 1;
 
 [minVal,minPos]  = min(Wspot);
-guessPosHoriz    = D(minPos)/3;   %horizontal waist position best guess for fit (cm)
+guessPosHoriz    = D(minPos);   %horizontal waist position best guess for fit (cm)
 guessWaistHoriz  = minVal;      %horizontal waist size best guess for fit (um)
-guessM2Horz      = 1.1;
+guessM2Horiz     = 1;
 
 %% --- Create fit - Vertical Fit
-beta = [guessWaistVert guessPosVert log(guessM2Vert)];
-s = fitoptions('Method'     ,   'NonlinearLeastSquares' ,...
-               'Lower'      ,   [0,1,-Inf]              ,...
-               'Upper'      ,   [Inf,Inf,Inf]           ,...
-               'StartPoint' ,   beta                    );
-funcFittype = fittype(waistFunc,'options',s);
+% Build correct weight vector and initial guess vector
+beta = [guessWaistVert guessPosVert];
+if fitM2; beta(end + 1) = guessM2Vert; end
+if weightFit; wghtVec = 1./Vstd.^2; else wghtVec = ones(1,length(D)); end
+funcFitType = fittype(waistFunc,'options',fitFuncOpt(beta,wghtScaleFunc(wghtVec)));
+
 % Fit horizontal model using new data
-[cfun_Vert,gof_Vert,output_Vert] = fit(D,Vspot*1e-4,funcFittype,'Weights',1./Vstd.^2);
+[cfun_Vert,gof_Vert,output_Vert] = fit(D,Vspot*1e-4,funcFitType); 
 cf_Vert                          = coeffvalues(cfun_Vert);
 
 
 %% --- Create fit - Horizontal Fit
-beta = [guessWaistHoriz guessPosHoriz log(guessM2Horz)];
-s = fitoptions('Method'     ,   'NonlinearLeastSquares' ,...
-               'Lower'      ,   [0,1,-Inf]              ,...
-               'Upper'      ,   [Inf,Inf,Inf]           ,...
-               'StartPoint' ,   beta                    );
-funcFittype = fittype(waistFunc,'options',s);
+% Build correct weight vector and initial guess vector
+beta = [guessWaistHoriz guessPosHoriz];
+if fitM2; beta(end + 1) = guessM2Horiz; end
+if weightFit; wghtVec = 1./Wstd.^2; else wghtVec = ones(1,length(D)); end
+funcFitType = fittype(waistFunc,'options',fitFuncOpt(beta,wghtScaleFunc(wghtVec)));
 
 % Fit horizontal model using new data
-[cfun_Horz,gof_Horz,output_Horz] =  fit(D,Wspot*1e-4,funcFittype,'Weights',1./Wstd.^2);
+[cfun_Horz,gof_Horz,output_Horz] =  fit(D,Wspot*1e-4,funcFitType);
 cf_Horz                          = coeffvalues(cfun_Horz);
 
 %% Calculate uncertainties
 unc_vert     = confint(cfun_Vert);
 vert_was_unc = unc_vert(:,1); vert_was_unc = diff(vert_was_unc)/2;
-vert_M2_unc  = unc_vert(:,2); vert_M2_unc  = diff(vert_M2_unc)/2;
-vert_pos_unc = unc_vert(:,3); vert_pos_unc = diff(vert_pos_unc)/2; 
+vert_pos_unc = unc_vert(:,2); vert_pos_unc = diff(vert_pos_unc)/2;
+if fitM2; vert_M2_unc  = unc_vert(:,3); vert_M2_unc  = diff(vert_M2_unc)/2; end
 
 unc_horz     = confint(cfun_Horz);
 horz_was_unc = unc_horz(:,1); horz_was_unc = diff(horz_was_unc)/2;
-horz_M2_unc  = unc_horz(:,2); horz_M2_unc  = diff(horz_M2_unc)/2;
-horz_pos_unc = unc_horz(:,3); horz_pos_unc = diff(horz_pos_unc)/2; 
+horz_pos_unc = unc_horz(:,2); horz_pos_unc = diff(horz_pos_unc)/2;
+if fitM2; horz_M2_unc  = unc_horz(:,3); horz_M2_unc  = diff(horz_M2_unc)/2; end
 
 %% Calculate the predicted fits and bounds
 % create x vector to plots fit points with
-xlim_  = [min(D) max(D)];
-x_pnts = linspace(xlim_(1).*0.5,xlim_(end).*1.5,1e3);
+xFitLim  = [min(D) max(D)] + [-1 1] * 1.5 * diff([min(D) max(D)]);
+x_pnts = linspace(xFitLim(1),xFitLim(end),1e3);
 
 [ci_Vert,pred_Vert] = predint(cfun_Vert,x_pnts,0.95,'observation','on');
 [ci_Horz,pred_Horz] = predint(cfun_Horz,x_pnts,0.95,'observation','on');
@@ -128,11 +164,15 @@ figure(figFit);
 ax_ = subaxis(2,2,1,1,'SH',0.01,'ML',0.05,'MT',0.05); 
 set(ax_,'Box','on','Linewidth',2,'FontSize',15);
 axes(ax_); hold on; grid on;
-h_ = errorbar(D,Vspot,Vstd);
+if weightFit
+    h_ = errorbar(D,Vspot,Vstd);
+else
+    h_ = plot(D,Vspot);
+end
 set(h_,'Parent',ax_,'Color','k',...
-     'LineStyle','none', 'LineWidth',1,...
-     'Marker','o', 'MarkerSize',12,...
-     'MarkerFaceColor',[0.847 0.161 0]);
+    'LineStyle','none', 'LineWidth',1,...
+    'Marker','o', 'MarkerSize',12,...
+    'MarkerFaceColor',[0.847 0.161 0]);
 ylabel('Vertical Waist Radius','FontSize',20)
 
 % Plot the Vertical fit
@@ -148,6 +188,7 @@ set(h_(2:3),'Color',[0.502 0.502 0.502],...
     'LineStyle',':', 'LineWidth',2); 
  
 % Nudge axis limits beyond data limits
+xlim_ = [min(D) max(D)];
 if all(isfinite(xlim_))
    xlim_ = xlim_ + [-1 1] * 0.01 * diff(xlim_);
    set(ax_,'XLim',xlim_)
@@ -157,11 +198,15 @@ end
 ax_ = subaxis(2,2,1,2,'SH',0.01,'ML',0.05,'MT',0.05); 
 set(ax_,'Box','on','Linewidth',2,'FontSize',15);
 axes(ax_); hold on; grid on
-h_  = errorbar(D,Wspot,Wstd);
+if weightFit
+    h_  = errorbar(D,Wspot,Wstd);
+else
+    h_  = plot(D,Wspot);
+end
 set(h_,'Parent',ax_,'Color','k',...
-     'LineStyle','none', 'LineWidth',1,...
-     'Marker','o', 'MarkerSize',12,...
-     'MarkerFaceColor',[0.847 0.161 0]);
+         'LineStyle','none', 'LineWidth',1,...
+         'Marker','o', 'MarkerSize',12,...
+         'MarkerFaceColor',[0.847 0.161 0]);
 ylabel('Horiztonal Waist Radius','FontSize',20)
 
 % Plot this Horizontal fit
@@ -185,20 +230,30 @@ end
  
 % Add textbox showing the fit information 
 % Table information
-horz_pos_str = sprintf('Horizontal Waist Position (cm): %g +/- %g',cf_Horz(3),horz_pos_unc);
+horz_pos_str = sprintf('Horizontal Waist Position (cm): %g +/- %g',cf_Horz(2),horz_pos_unc);
 horz_was_str = sprintf('Horizontal Waist Size     (um): %g +/- %g',cf_Horz(1),horz_was_unc);
-horz_M2_str  = sprintf('Horizontal M^2: %g +/- %g',cf_Horz(2)^2,2*horz_M2_unc);
-vert_pos_str = sprintf('Vertical Waist Position   (cm): %g +/- %g',cf_Vert(3),vert_pos_unc);
+vert_pos_str = sprintf('Vertical Waist Position   (cm): %g +/- %g',cf_Vert(2),vert_pos_unc);
 vert_was_str = sprintf('Vertical Waist Size       (um): %g +/- %g',cf_Vert(1),vert_was_unc);
-vert_M2_str  = sprintf('Vertical M^2: %g +/- %g',cf_Vert(2)^2,2*vert_M2_unc);
+
+if fitM2; 
+    horz_M2_str  = sprintf('Horizontal M^2: %g +/- %g',cf_Horz(3)^2,2*horz_M2_unc);
+    vert_M2_str  = sprintf('Vertical M^2: %g +/- %g',cf_Vert(3)^2,2*vert_M2_unc);
+else
+    horz_M2_str  = sprintf('Horizontal M^2 fixed to 1');
+    vert_M2_str  = sprintf('Vertical M^2 fixed to 1');
+end
 
 data = {vert_pos_str; vert_was_str; vert_M2_str; ''; horz_pos_str; horz_was_str; horz_M2_str};
 
 % Add legend and information to fit plot
 hold on;
 %legend(ax_,legh_, legt_,4,'Location','Best');
-annotation('textbox',[.15,.8,.1,.1],'String',data,...
-    'LineStyle','-','BackgroundColor',[1 1 .84],'EdgeColor',[0 0 0]);
+annotation('textbox'         ,   [.15,.8,.1,.1]  ,...
+           'String'          ,   data            ,...
+           'LineStyle'       ,   '-'             ,...
+           'BackgroundColor' ,   [1 1 .84]       ,...
+           'EdgeColor'       ,   [0 0 0]         ,...
+           'FontSize'        ,   16              );
     
 xlabel('Distance From Source (cm)','FontSize',20)
 
@@ -207,21 +262,25 @@ figure(figFit)
 ax_ = subaxis(2,2,2,1,1,2,'MR',0.01,'MT',0.05); 
 set(ax_,'Box','on','Linewidth',2,'FontSize',15);
 hold on;
-errorbar(D,Wspot,Wstd,'b*'); hold on
-errorbar(D,Vspot,Vstd,'r+');
-
+if weightFit
+    errorbar(D,Wspot,Wstd,'b*'); hold on
+    errorbar(D,Vspot,Vstd,'r+');
+else
+    plot(D,Wspot,'b*'); hold on
+    plot(D,Vspot,'r+');
+end
 % Extend plot beyond set propagation bounds
-xPredPnt = propXBounds + [-1 1] * 0.5 * diff(propXBounds);
+xPredPnt = factorXBounds*xFitLim + [-1 1] * 0.5 * diff(factorXBounds*xFitLim);
 xPred    = linspace(xPredPnt(1),xPredPnt(2),5e3); %cm
 horzTheo = cfun_Horz(xPred)*1e4;
 vertTheo = cfun_Vert(xPred)*1e4;
 
 plot(xPred,horzTheo,'-b',xPred,vertTheo,'-r');
 grid on;
-xlim(propXBounds)
+xlim(xlim_ + [-1 1]*factorXBounds/2*diff(xlim_));
 xlabel('Distance [cm]','Fontsize',20);
 ylabel('Spot Size [um]','Fontsize',20);
-legend('Horizontal','Vertical','Location','Best');
+legend('Horizontal (W)','Vertical (V)','Location','Best');
 
 %% Clean up workspace but keep fit objects
 clearvars -except cfun_Vert cfun_Horz

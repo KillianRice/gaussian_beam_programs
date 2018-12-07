@@ -1,0 +1,8 @@
+This program helps you to quickly take profiles and perform beam fitting using the Dataray camera. 
+
+Instructions
+1. After setting up to take your profile, fill in the notes file and determine whatever your translation distance to set zero needs to be and set the `translate_dist` variable in `runProfile.m`. This variable allows you to translate your track measurements to a meaningful zero. A common use case for this is when taknig data you record the track measurement but when plotting you want a meaningful zero (at the atoms, referencing some optic, etc.) to interpret your result, translate_dist lets you transform from track values to something useful.
+2. To take data simply setup the logging feature of the dataray software and save into the /dataray directory in this folder. ##NOTE## The dataray data file must be saved using the form '<xx>.log' where <xx> is assumed (by subsequent functions) to be in centimeters. <xx> should be a number such as '16.7' or '2.356', the program simply take whatever is before `.log` and assumes it is a number in cm.
+3. Assuming you saved the data correctly, filled in the wavelength of the laser, and set your translation distance, you can run `runProfile.m` to rad in the data and automatically fit it using BeamProfileFits_v4_Weighted (weights are determined as the standard deviation from each track data point).
+
+Ask Jim (scasplte2) for assistance if you have any problems.

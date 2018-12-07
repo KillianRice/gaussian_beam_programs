@@ -1,0 +1,50 @@
+% Below is an example of a notes files that is useful for maintaining good records of profile changes. When you begin a project, start by measuring all the relevant distances and each time you make a change, note it in this file.
+
+####################################################################################################################
+%Arm B First Pass Profile with Cylindrical f=250mm lens (acting on vertical axis of beam) to make sheet trap
+%2018.10.29
+%
+%Power Specs: 
+%18W set on Verdi
+%Going through polished back mirror before profiler
+%Power going to profiler head: ~25uW
+
+%Measurement specs:
+%Data Ray Camera
+%No averaging
+% Tilt of beam = 
+%Distances are listed from the back of the profiler platform
+
+
+%Distances (cm)
+%----------------------
+%Distances from 2016
+Arm B - First Pass
+--------------------------------
+%3.5  - Mirror 5 to dichroic
+%14   - Mirror 4 to Mirror 5
+%23.5 - Mirror 3 to Mirror 4
+%46   - Mirror 2 to Mirror 3
+%25   - Mirror 1 to Mirror 2
+%19   - AOM to Mirror 1
+
+%Distances for this profile
+%14.6 - Flange edge to Atoms
+%21.5 - Dichroic to Flange Edge
+%36.1 - Dichroic to atoms 
+%8.3  - Dichroic to f=250mm cylindrical lens center
+%16.4 - Dichroic to temporary turning mirror
+%11.1 - Temporary turning mirror to track zero
+%-3.5 - Rear of cart to detector
+
+The location of the atoms is 8.6cm along the track. This means that I want the rear of the cart at 12.1cm to put the detector at the location of the atoms.
+
+Right now I see the waist at 13.8cm. 
+
+The lens is 3.4mm thick.
+
+Possible reasons for the discrepancy/Sources of uncertainty
+* Measurement accuracy by hand
+* Diagonal beam propagation (vs straight)
+* Viewport acting as lens
+* Knowledge of viewport thickness (at most adding about 2mm of optical length)
